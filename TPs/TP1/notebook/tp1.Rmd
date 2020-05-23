@@ -1,0 +1,170 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+
+library(tidyverse)
+df_incendios <- read.csv("../dataset_incendios.csv",sep = ";",dec = ",")
+head(df_incendios)
+
+```
+
+```{r}
+
+summary(df_incendios)
+
+```
+
+```{r}
+
+ggplot(df_incendios, aes(x = sup_afectada )) +
+  geom_histogram()
+
+```
+
+### Mapas
+```{r, eval=FALSE}
+library(sf)
+mapa_arg <- read_sf("../../../../ERS_costos/data/shp/pais/pais.shp")
+mapa_prov <- read_sf("../../../../ERS_costos/data/shp/provincias/provincias.shp")
+mapa_depto <- st_read("../../../../ERS_costos/data/shp/departamentos/departamento.geojson")
+mapa_aguas <- st_read("../../../../ERS_costos/data/shp/rios/areas_de_aguas_continentales_BH140.json")
+mapa_puertos <- read_sf("../../../../ERS_costos/data/shp/puertos/Puertos.shp")
+mapa_sudamerica <- read_sf("../../../../ERS_costos/data/shp/sudamerica/custom.geo.json")
+
+
+box = c(xmin = -74 , ymin = -55, xmax = -45, ymax = -21) #construimos un box que se enfoque en el continente
+#mapa_depto<-st_crop(mapa_depto, box) #cortamos
+#mapa_arg<-st_crop(mapa_arg, box)
+#mapa_prov<-st_crop(mapa_prov, box)
+#mapa_aguas <-st_crop(mapa_aguas, box)
+#
+
+
+#Genero variables ID.Provincia y ID.Departamento para join con Estimaciones
+mapa_depto <- mapa_depto %>% mutate(ID.Provincia = substr(IN1, 1, 2),
+                             ID.Departamento = substr(IN1, 3, 6)) %>%
+                      mutate(ID.Provincia = as.integer(ID.Provincia),
+                             ID.Departamento = as.integer(ID.Departamento))
+
+
+
+#Join de tablas
+df_incendios_sf  <-  mapa_depto %>% full_join(df_incendios,
+                                           by = c("ID.Departamento"="departamento_id","ID.Provincia"="provincia_id"))
+
+#calculo centroyde
+df_incendios_sf <- df_incendios_sf %>% mutate(
+  centroids = st_centroid(st_geometry(geometry) ),
+  lat = unlist(map( centroids,1)),                                           
+  long = unlist(map(centroids,2)))
+
+
+g0 <- ggplot()+ geom_sf(data = mapa_prov , fill="transparent") 
+g1 <- ggplot()+
+  geom_sf(data = df_incendios_sf ,mapping = aes(fill = as.numeric(sup_afectada) ), col=NA)+
+  #scale_fill_viridis_c(trans = "sqrt", alpha = .4) +
+  scale_fill_gradient(low = "#ffffcc",high = "#b10026" ,na.value = "transparent")+
+  theme_void()+theme(legend.position = 'none')
+
+
+g0  + geom_point(df_incendios_sf %>% filter(sup_afectada>1),
+                 mapping = aes(x = lat, long, size=sup_afectada, col=sup_afectada, alpha=.6))+
+  coord_sf(xlim = c(-74, -45), ylim = c(-55, -21), expand = FALSE)
+
+
+g0  + ggridges:: (df_incendios_sf %>% filter(sup_afectada>1),
+                 mapping = aes(x = lat, long, size=sup_afectada, col=sup_afectada, alpha=.6))+
+  coord_sf(xlim = c(-74, -45), ylim = c(-55, -21), expand = FALSE)
+
+
+
+g2 <- g1 + geom_sf(data = mapa_depto,col="#f0f0f0" , fill="transparent")
+
+g2 + geom_sf(data = mapa_prov, fill="transparent")+
+  coord_sf(xlim = c(-74, -45), ylim = c(-55, -21), expand = FALSE)
+
+head(df_incendios_sf)
+```
+
+```{r}
+
+library(classInt)
+
+# get quantile breaks. Add .00001 offset to catch the lowest value
+breaks_qt <- classIntervals(c(min(estimaciones$Producción..Tn.) , estimaciones$Producción..Tn.), n = 4, style = "quantile")
+
+breaks_qt$brks
+
+
+```
+
+```{r, eval=FALSE, fig.height=8, fig.width=8}
+
+estimaciones<- mutate(estimaciones,Producción..Tn. = cut(Producción..Tn., breaks_qt$brks)) 
+
+
+g0 <- ggplot() + geom_sf(data = mapa_sudamerica, fill= "#f0f0f0", col="#bdbdbd" )
+
+
+
+g1 <- g0+ geom_sf(data = mapa_prov, fill="white")
+
+g2 <- g1 + geom_sf(data = estimaciones   %>% filter(Campana=="2018/19", Cultivo %in% c("Maíz", "Soja total") ) ,
+                   mapping = aes(fill = Producción..Tn.), col=NA , alpha =.6)+
+  theme(legend.position = 'bottom')+
+  scale_fill_brewer(palette = "Greens")+
+  theme_void()
+
+#g2 <- g2+ geom_sf(data = mapa_arg, fill="transparent")
+
+
+g3 <- g2 + geom_sf(data = mapa_aguas %>% filter(fna %in% c("Río Paraná","Río Paraguay","Río Uruguay")), col="#386cb0" , size=1.2) 
+
+g3 + geom_sf(data= mapa_puertos %>% filter(PUERTO %in% c("BAHIA BLANCA","ROSARIO","QUEQUEN")), col="black",shape = 23, fill = "darkred", size=3)+
+  geom_sf_text(data = mapa_puertos %>% filter(PUERTO %in% c("BAHIA BLANCA","ROSARIO")), aes(label = PUERTO), fontface = "bold", size = 3, nudge_y = .8) +
+  geom_sf_text(data = mapa_puertos %>% filter(PUERTO %in% c("QUEQUEN")), aes(label = PUERTO),
+               fontface = "bold", size = 3, nudge_x = 2) + 
+  labs(title = "Production regions for Argentina. corn and soybeans and major ports",
+       caption = "Source: Bolsa de Cereales based on Ministry of Agriculture,\n Livestock and Fisheries of Argentina 2018/2019 season data",
+        fill = "Areas of corn and soy production")+ 
+  coord_sf(xlim = c(-74, -45), ylim = c(-55, -21), expand = FALSE)+
+  theme(panel.grid.major = element_line(color = gray(.5), linetype = "dashed", size = 0.5), panel.background = element_rect(fill = "aliceblue"),legend.text = element_blank(), legend.position = "top")
+
+
+```
+
+```{r}
+
+
+```
+```{r}
+
+
+```
+```{r}
+
+
+```
+```{r}
+
+
+```
+```{r}
+
+
+```
+```{r}
+
+
+```
+```{r}
+
+
+```
