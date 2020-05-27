@@ -10,8 +10,9 @@ Try executing this chunk by clicking the *Run* button within the chunk or by pla
 ```{r}
 
 library(tidyverse)
-df_incendios <- read.csv("../dataset_incendios.csv",sep = ";",dec = ",")
+df_incendios <- read.csv("../data/dataset_incendios.csv",sep = ";",dec = ",")
 head(df_incendios)
+
 
 ```
 
@@ -29,7 +30,7 @@ ggplot(df_incendios, aes(x = sup_afectada )) +
 ```
 
 ### Mapas
-```{r, eval=FALSE}
+```{r, fig.height=6, fig.width=10}
 library(sf)
 mapa_arg <- read_sf("../../../../ERS_costos/data/shp/pais/pais.shp")
 mapa_prov <- read_sf("../../../../ERS_costos/data/shp/provincias/provincias.shp")
@@ -65,32 +66,80 @@ df_incendios_sf <- df_incendios_sf %>% mutate(
   lat = unlist(map( centroids,1)),                                           
   long = unlist(map(centroids,2)))
 
+g0 <- ggplot() + geom_sf(data = mapa_sudamerica, fill= "#f0f0f0", col="#bdbdbd" )
+g1 <- g0+ geom_sf(data = mapa_prov, fill="white")
 
-g0 <- ggplot()+ geom_sf(data = mapa_prov , fill="transparent") 
-g1 <- ggplot()+
-  geom_sf(data = df_incendios_sf ,mapping = aes(fill = as.numeric(sup_afectada) ), col=NA)+
-  #scale_fill_viridis_c(trans = "sqrt", alpha = .4) +
-  scale_fill_gradient(low = "#ffffcc",high = "#b10026" ,na.value = "transparent")+
-  theme_void()+theme(legend.position = 'none')
-
-
-g0  + geom_point(df_incendios_sf %>% filter(sup_afectada>1),
-                 mapping = aes(x = lat, long, size=sup_afectada, col=sup_afectada, alpha=.6))+
-  coord_sf(xlim = c(-74, -45), ylim = c(-55, -21), expand = FALSE)
-
-
-g0  + ggridges:: (df_incendios_sf %>% filter(sup_afectada>1),
-                 mapping = aes(x = lat, long, size=sup_afectada, col=sup_afectada, alpha=.6))+
-  coord_sf(xlim = c(-74, -45), ylim = c(-55, -21), expand = FALSE)
-
+g2 <- g1  + geom_point(df_incendios_sf %>% filter(sup_afectada>1) %>% rename( `Sup. afectada (ha)`= sup_afectada),
+                 mapping = aes(x = lat, long, size=`Sup. afectada (ha)`, col= `Sup. afectada (ha)`),  alpha=.8)+
+  scale_color_continuous(limits=c(0, 2000), breaks=seq(0, 2000, by=500),type = "gradient",
+                         low = "#feb24c" ,high = "#e31a1c") +
+  #scale_color_gradient(low = "#feb24c" ,high = "#e31a1c")+
+  scale_size_continuous(limits=c(0, 2000), breaks=seq(0, 2000, by=500))+
+  coord_sf(xlim = c(-74, -45), ylim = c(-55, -21), expand = FALSE)+
+  facet_wrap(~año_inicial,ncol =5 )+ 
+  guides(color= guide_legend(), size=guide_legend())+
+  labs( title = "Superficie afectada por incendios (ha)", subtitle = "Años 2011-2015",  y="", x="")+
+  theme(panel.grid.major = element_line(color = gray(.5), linetype = "dashed", size = 0.5),
+        panel.background = element_rect(fill = "aliceblue"), legend.position = "top",
+        axis.text = element_text(size=6))
 
 
-g2 <- g1 + geom_sf(data = mapa_depto,col="#f0f0f0" , fill="transparent")
+g2
 
-g2 + geom_sf(data = mapa_prov, fill="transparent")+
-  coord_sf(xlim = c(-74, -45), ylim = c(-55, -21), expand = FALSE)
 
-head(df_incendios_sf)
+#https://www.nytimes.com/interactive/2020/01/02/climate/australia-fires-map.html
+```
+
+### Superficie afectada por incendios, según tipo de vegetación. Total país. Período 2008-2017.
+
+```{r}
+
+df_vegetacion <- read.csv("../data/superficie-incendiada-parques-nacionales-tipo-de-vegetacion.csv",sep = ";",dec = ",") %>% select(1:6) %>% pivot_longer(cols = -c(1),names_to = "tipo",values_to = "sup_afectada") %>% 
+  rename(year = superficie_afectada_por_incendios_total_anio) %>% 
+  mutate(tipo = str_remove(tipo,"superficie_afectada_por_incendios_")) %>% filter(year>2010, year<2016, tipo!="total._hectareas")
+
+head(df_vegetacion)
+```
+
+
+
+
+
+```{r}
+
+df_vegetacion <- read.csv("../data/superficie-incendiada-provincias-tipo-de-vegetacion.csv",sep = ";", stringsAsFactors = F) %>% select(1:8) %>%
+  mutate(superficie_afectada_por_incendios_bosque_nativo_hectareas = as.numeric(superficie_afectada_por_incendios_bosque_nativo_hectareas),
+         superficie_afectada_por_incendios_bosque_cultivado_hectareas = as.numeric(superficie_afectada_por_incendios_bosque_cultivado_hectareas),
+         superficie_afectada_por_incendios_total_hectareas = as.numeric(superficie_afectada_por_incendios_total_hectareas),
+         superficie_afectada_por_incendios_pastizal_hectareas = as.numeric(superficie_afectada_por_incendios_pastizal_hectareas)
+ ) %>% 
+  pivot_longer(cols = -c(1,2),names_to = "tipo",values_to = "sup_afectada") %>% 
+  rename(year = superficie_afectada_por_incendios_anio) %>% 
+  mutate(tipo = str_remove(tipo,"superficie_afectada_por_incendios_")) %>% filter(year>2010,year<2016) 
+head(df_vegetacion)
+
+```
+
+```{r, fig.height=6, fig.width=12}
+
+df_incendios %>% group_by(año_inicial) %>% summarise(sup_afectada = sum(sup_afectada,na.rm = T)) %>% 
+  ggplot(., aes(año_inicial, sup_afectada))+ #+ geom_col(fill="#fc4f30")+ 
+  labs(x="año", y = "Sup. afectada ( ha)", title = "Superficie afectada por incendios (ha). Total país")+
+  geom_line(aes(año_inicial, sup_afectada),size=2,col="#fc4f30")+
+  geom_text(mapping = aes(label= round(sup_afectada) ),nudge_y = 200,size=6)+
+  theme_bw()+theme(legend.position = "top", text = element_text(size= 25))
+
+
+df_incendios %>% group_by(año_inicial) %>% summarise(cant_focos = sum(cant_focos,na.rm = T)) %>% 
+  ggplot(., aes(año_inicial, cant_focos ))+ #+ geom_col(fill="#fc4f30")+ 
+  labs(x="año", y = "Cant. de focos", title = "Cantidad de focos de incendios. Total país")+
+  geom_line(aes(año_inicial, cant_focos),size=2,col="#30a2da")+
+  geom_text(mapping = aes(label= round(cant_focos ) ),nudge_y = 3,size=6)+
+  theme_bw()+theme(legend.position = "top", text = element_text(size= 25))
+```
+
+```{r}
+500*.65
 ```
 
 ```{r}
@@ -102,7 +151,7 @@ breaks_qt <- classIntervals(c(min(estimaciones$Producción..Tn.) , estimaciones$
 
 breaks_qt$brks
 
-
+70*.25
 ```
 
 ```{r, eval=FALSE, fig.height=8, fig.width=8}
@@ -128,7 +177,7 @@ g2 <- g1 + geom_sf(data = estimaciones   %>% filter(Campana=="2018/19", Cultivo 
 g3 <- g2 + geom_sf(data = mapa_aguas %>% filter(fna %in% c("Río Paraná","Río Paraguay","Río Uruguay")), col="#386cb0" , size=1.2) 
 
 g3 + geom_sf(data= mapa_puertos %>% filter(PUERTO %in% c("BAHIA BLANCA","ROSARIO","QUEQUEN")), col="black",shape = 23, fill = "darkred", size=3)+
-  geom_sf_text(data = mapa_puertos %>% filter(PUERTO %in% c("BAHIA BLANCA","ROSARIO")), aes(label = PUERTO), fontface = "bold", size = 3, nudge_y = .8) +
+  geom_sf_text(data = mapa_puertos %>% filter(PUERTO %in% c("BAHIA BLANCA","ROSARIO")), aes(label = PUERTO), size = 3, nudge_y = .8) +
   geom_sf_text(data = mapa_puertos %>% filter(PUERTO %in% c("QUEQUEN")), aes(label = PUERTO),
                fontface = "bold", size = 3, nudge_x = 2) + 
   labs(title = "Production regions for Argentina. corn and soybeans and major ports",
